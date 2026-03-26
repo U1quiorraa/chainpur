@@ -1,1 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My TV Channels - Pro Player</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #111; color: white; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        
+        /* Sidebar Layout */
+        .sidebar { 
+            width: 280px; 
+            background: #1a1a1a; 
+            border-right: 1px solid #333; 
+            display: flex; 
+            flex-direction: column;
+            transition: 0.3s ease;
+        }
+        .sidebar-header { padding: 20px; background: #222; font-weight: bold; border-bottom: 1px solid #333; }
+        
+        #channel-list { flex: 1; overflow-y: auto; }
+        .channel-item { 
+            padding: 12px 20px; 
+            cursor: pointer; 
+            border-bottom: 1px solid #252525; 
+            font-size: 14px;
+            color: #bbb;
+        }
+        .channel-item:hover { background: #333; color: white; }
+        .channel-item.active { background: #007bff; color: white; font-weight: bold; }
 
+        /* Main Player Area */
+        .main-content { 
+            flex: 1; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            background: black; 
+            position: relative;
+        }
+        video { width: 95%; max-height: 80vh; border-radius: 4px; }
+        
+        #channel-info { margin-bottom: 15px; font-size: 22px; font-weight: bold; color: #007bff; }
+        .controls { margin-top: 20px; display: flex; gap: 10px; }
+        
+        button { 
+            padding: 10px 20px; 
+            font-size: 16px; 
+            cursor: pointer; 
+            background: #333; 
+            color: white; 
+            border: none; 
+            border-radius: 4px; 
+            transition: 0.3s; 
+        }
+        button:hover { background: #444; }
+        .btn-primary { background: #007bff; }
+        .btn-primary:hover { background: #0056b3; }
+
+        /* FULLSCREEN HIDING LOGIC */
+        /* This hides the sidebar when the main container goes fullscreen */
+        .player-wrapper:fullscreen .sidebar { display: none; }
+        .player-wrapper:-webkit-full-screen .sidebar { display: none; }
+    </style>
+</head>
+<body>
+
+<div id="wrapper" class="player-wrapper" style="display: flex; width: 100%; height: 100%;">
+    <div class="sidebar">
+        <div class="sidebar-header">📺 Channel Selector</div>
+        <div id="channel-list"></div>
+    </div>
+
+    <div class="main-content">
+        <div id="channel-info">Select a Channel</div>
+        <video id="video" controls></video>
+        <div class="controls">
+            <button onclick="prevChannel()">Previous</button>
+            <button class="btn-primary" onclick="nextChannel()">Next</button>
+            <button onclick="toggleFullscreen()">Fullscreen</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // List of channel links extracted from your file 
+    const channels = [
+        "http://202.166.192.204/iptvlivestream/netKANTIPUR1500.stream/chunks.m3u8?nimblesessionid=1043694780&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MjY6MTIgQU0maGFzaF92YWx1ZT15ejJPeEpBdkxoRmJaSVRwMFBZT0RRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+        "http://202.166.192.204/iptvlivedge/netAP1HD1500.stream/chunks.m3u8?nimblesessionid=1043695501&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6Mjk6MjMgQU0maGFzaF92YWx1ZT1za3B4Q3dBY2tsQjZRUFFrbnp5dUZRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+        "http://202.166.192.205/iptvlivestream/netHIMALAYA1500.stream/chunks.m3u8?nimblesessionid=1043695587&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6Mjk6NDUgQU0maGFzaF92YWx1ZT16cCtzNHpaT2pBRHAzak5OSEc2Nk9BPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+        "http://202.166.192.204/iptvlivestream/netNTVNEPAL1500.stream/chunks.m3u8?nimblesessionid=1043695676&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzA6MDMgQU0maGFzaF92YWx1ZT1NQldLdExrUm10VmRGWmJ0OFJ6WWJBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+        "http://202.166.192.207/iptvlivestream/netNTVNEWS1500.stream/chunks.m3u8?nimblesessionid=680241538&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzA6MTQgQU0maGFzaF92YWx1ZT03USt6Qkk5ZEk2Nnp6R0pmOVgvRVZBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+	"http://202.166.192.205/iptvlivestream/netNTVPLUS1500.stream/chunks.m3u8?nimblesessionid=1043695790&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzA6MzEgQU0maGFzaF92YWx1ZT1qYkluKzFqakFKczNKeFF6bFJhM0FBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+	"http://202.166.192.207/iptvlivestream/netPRIMETV1500.stream/chunks.m3u8?nimblesessionid=680241746&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzA6NDggQU0maGFzaF92YWx1ZT16b0F2cWRwODZCTWVadE9RUmVaZjl3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+	"http://202.166.192.204/iptvlivestream/netMakaluTvHD.stream/chunks.m3u8?nimblesessionid=1043695906&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzE6MDUgQU0maGFzaF92YWx1ZT1UYTdaM2NuVWx3RFcyQXIyZDdVVHlnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+	"http://202.166.192.204/iptvlivestream/netJANTATV1500.stream/chunks.m3u8?nimblesessionid=1043695960&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzE6MTcgQU0maGFzaF92YWx1ZT1ocTRsd09GNytoK2J1R1c4QmVIa3p3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+	"http://202.166.192.207/iptvlivestream/netMOUNTAIN1500.stream/chunks.m3u8?nimblesessionid=680242019&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzE6MjcgQU0maGFzaF92YWx1ZT1IVEZCZ1JQcHlUdER0ZWd4aDNwSWtRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+"http://202.166.192.204/iptvlivestream/netGALAXY1500.stream/chunks.m3u8?nimblesessionid=1043696067&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzE6NDQgQU0maGFzaF92YWx1ZT1OYTZFSi93NkJjMG96UDV2T0dBTENBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+"http://202.166.192.205/iptvlivestream/netKANTIPURCINEPLEX1500.stream/chunks.m3u8?nimblesessionid=1043696107&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzE6NTUgQU0maGFzaF92YWx1ZT10K2wwVEJHS0lqMjUwZmJoUlIxZkdRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/npllive/KTVHD4500.stream/chunks.m3u8?nimblesessionid=1043696153&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzI6MDcgQU0maGFzaF92YWx1ZT1YWmxBRDhjTnB3bXlpbDlIcjdVcXRRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netMeTvHD.stream/chunks.m3u8?nimblesessionid=1043696193&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzI6MTcgQU0maGFzaF92YWx1ZT1DMEtENkpyUmpoYzVaY3NsR21WR1dBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netNTVitahari1500.stream/chunks.m3u8?nimblesessionid=680242394&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzI6MjcgQU0maGFzaF92YWx1ZT1sN0RqSFlmc01obTh5NzY1czdjSDJ3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netNTVKOHALPUR1500.stream/chunks.m3u8?nimblesessionid=1043696275&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzI6MzggQU0maGFzaF92YWx1ZT1GWDNyTDJqWUxPR01VTVRqNDZsWHF3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/netYohoTv1500.stream/chunks.m3u8?nimblesessionid=673374978&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzI6NDggQU0maGFzaF92YWx1ZT1ZZFMwQWw0V2xTWHladVBaUVZpaWtRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/netBusinessplus1500.stream/chunks.m3u8?nimblesessionid=673375061&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzM6MDEgQU0maGFzaF92YWx1ZT03R0ZpOTg4ZzNCejRhaXQ5eGJrZWl3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netGlobalTvNep.stream/chunks.m3u8?nimblesessionid=1043696413&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzM6MTAgQU0maGFzaF92YWx1ZT1kczQwYi85TDBrUnJDOXJGU1JiUTZRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netNEWS1500.stream/chunks.m3u8?nimblesessionid=680242694&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzM6MTkgQU0maGFzaF92YWx1ZT1wNUtTSmcwUThldEZHL0lVT1llckVBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/netIMAGE1500.stream/chunks.m3u8?nimblesessionid=673375351&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzM6NDggQU0maGFzaF92YWx1ZT1aeFJ3ZXUxOHdabmEwUFBoMHhJdXZ3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netSAGAR1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzQ6MDggQU0maGFzaF92YWx1ZT1GUXV4ZUlzNUpCaU9ZN3lBZnFxTXJRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/netABC1500.stream/chunks.m3u8?nimblesessionid=673375522&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzQ6MjUgQU0maGFzaF92YWx1ZT10RGVtSHRLemZWRFBjWExuSENkK3JBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netAVENEWS1500.stream/chunks.m3u8?nimblesessionid=1043696858&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzQ6MzYgQU0maGFzaF92YWx1ZT1YU1lxY0ozVTZnS1NkNkNOYm15NXlRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netTVTODAY1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzQ6NDYgQU0maGFzaF92YWx1ZT04K0toaXdkdkNSSURtUlpidmd4MUpRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netBTV1500.stream/chunks.m3u8?nimblesessionid=1043696984&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzU6MDAgQU0maGFzaF92YWx1ZT1CSFJTMHNZUHRwTUl3V2p0a0JQZDlnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netTVFILMY1500.stream/chunks.m3u8?nimblesessionid=1043697017&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzU6MDggQU0maGFzaF92YWx1ZT1VL2NoMUVMS1FaanUyWTc4NjdFbHVRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netHimShikharTV1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzU6MTkgQU0maGFzaF92YWx1ZT1ISjBUc3hNSUpEZUtKcmhHRlF2TUdnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netSPACE4K.stream/chunks.m3u8?nimblesessionid=680243562&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzU6MzIgQU0maGFzaF92YWx1ZT03RHAvY29SMVJRakttNlV6cllDbFF3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netlifeoknepal.stream/chunks.m3u8?nimblesessionid=680243744&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzY6MDEgQU0maGFzaF92YWx1ZT1ockFtN0p5SVZpd1g1WEkvcFphOTV3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/Megafallback.stream/chunks.m3u8?nimblesessionid=673376058&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzY6MTIgQU0maGFzaF92YWx1ZT1xZ0MrTnlKOWw4NHF0NUpGL05jOUpnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/aranikotv.stream/chunks.m3u8?nimblesessionid=680243863&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzY6MjEgQU0maGFzaF92YWx1ZT03TW1LRXVMOTlWWGtuaG9DelkxWGFRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/NewaTV.stream/chunks.m3u8?nimblesessionid=1043697321&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzY6MzEgQU0maGFzaF92YWx1ZT1uMFJQUG42UkQwakpicExsYUVQNi9BPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netBhadgaun1500.stream/chunks.m3u8?nimblesessionid=1043697354&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6MzY6NDEgQU0maGFzaF92YWx1ZT1tNXhlcThUanBsY2w5SHJNNUl1ZWlnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/paryawarantv.stream/chunks.m3u8?nimblesessionid=1043697537&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6Mzc6MjkgQU0maGFzaF92YWx1ZT1uaGxrSG9lTGFkVkpuRWlZcnN0S3RnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/rajya4k.stream/chunks.m3u8?nimblesessionid=680244341&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6Mzc6NDggQU0maGFzaF92YWx1ZT1HQ0dEZDlsNXVRWW00VS81bjcvblVnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/netBagmatiTV.stream/chunks.m3u8?nimblesessionid=673376536&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6Mzc6NTYgQU0maGFzaF92YWx1ZT1JQXU0NDVhbEd2M2FvQXFPejJ5Ujh3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/xraytv.stream/chunks.m3u8?nimblesessionid=1043697697&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6Mzg6MTQgQU0maGFzaF92YWx1ZT1wOXRwZS81cVkwNjJHNHJIMjE5RDl3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.206/iptvlivestream/netRAPTITV.stream/chunks.m3u8?nimblesessionid=673376729&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6Mzg6MzQgQU0maGFzaF92YWx1ZT1WbW1WUk1ENllPY1hDWmZGSTQ3TjdRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netCapitalTvHD.stream/chunks.m3u8?nimblesessionid=1043697874&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6Mzk6MDUgQU0maGFzaF92YWx1ZT1NRVNhakZ5SGZaZ2x0ZGtheUhvRFlnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netMukundaSenTV.stream/chunks.m3u8?nimblesessionid=680244918&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6Mzk6MTIgQU0maGFzaF92YWx1ZT1nZmRCZXpwVjNWZ01pVGRoRVVhSDBBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/NationalTVHD.stream/chunks.m3u8?nimblesessionid=673376987&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6Mzk6MjEgQU0maGFzaF92YWx1ZT14d1hsa2FxQTR0Y2R2cEVTZVdIendRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netALJAZEERA1500.stream/chunks.m3u8?nimblesessionid=680245296&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDA6MTQgQU0maGFzaF92YWx1ZT0xbjZvUUhVb2xyQkY5NU9SdlRsKzBnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netFRANCE241500.stream/chunks.m3u8?nimblesessionid=1043698227&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDA6MjQgQU0maGFzaF92YWx1ZT14ZW5wUXhNc0M1N0JIdW54ZVVmMVV3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/netNewsAsia1500.stream/chunks.m3u8?nimblesessionid=673377355&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDA6MzYgQU0maGFzaF92YWx1ZT1lcWJ2R1hkSU1zd2IzUGJKaXZsMCtRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/netBBCNEWS1500.stream/chunks.m3u8?nimblesessionid=673377413&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDA6NDYgQU0maGFzaF92YWx1ZT1TOFBoS3lkVGZjb0FIcysyeFFEdmRBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/netBBCNEWS1500.stream/chunks.m3u8?nimblesessionid=673377413&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDA6NDYgQU0maGFzaF92YWx1ZT1TOFBoS3lkVGZjb0FIcysyeFFEdmRBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netPTVWORLD1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDE6MDQgQU0maGFzaF92YWx1ZT1tb3pZLytMUzdPTTZaMEFXVTNhRkR3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netAAJTAK1500.stream/chunks.m3u8?nimblesessionid=1043698438&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDE6MTIgQU0maGFzaF92YWx1ZT1NR3JpNjFGNkZDRXJUSm5EQUcwZGFRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/netZEENEWS1500.stream/chunks.m3u8?nimblesessionid=673377587&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDE6MjIgQU0maGFzaF92YWx1ZT1ZL2Z1ajRNd25peER0bFM3VnNJc2JBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivedge/netSONYHD2500.stream/chunks.m3u8?nimblesessionid=673377653&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDE6MzYgQU0maGFzaF92YWx1ZT1vdVhqS0YxMnNyb2RKZGUzRndnaU9RPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivedge/netCOLORS1500.stream/chunks.m3u8?nimblesessionid=1043698552&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDE6NDMgQU0maGFzaF92YWx1ZT0wNU1VMy95UFFiOXp3L0k1bitQRGV3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivedge/netZEETVHD1500.stream/chunks.m3u8?nimblesessionid=673377722&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDE6NTAgQU0maGFzaF92YWx1ZT1odlpTbFozc1hHZTE0WHFENjJJU0x3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivedge/netSTARPLUSHD1500.stream/chunks.m3u8?nimblesessionid=1043698610&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDE6NTkgQU0maGFzaF92YWx1ZT1Wck4yWDk0MkIveGpKMDExSHAvUnJBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netANDTV1500.stream/chunks.m3u8?nimblesessionid=1043698631&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDI6MDYgQU0maGFzaF92YWx1ZT1nRG9kcEhiRGxPMkdYUGhwTEFLakdnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivedge/netLIFEOKHD1500.stream/chunks.m3u8?nimblesessionid=680245976&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDI6MTQgQU0maGFzaF92YWx1ZT16VHcybWhZeE1PRWNlWkdqTnZoL2JnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netSONYSABHD2500.stream/chunks.m3u8?nimblesessionid=1043698697&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDI6MjEgQU0maGFzaF92YWx1ZT04bnVrRk9JWlp6eGhKRDEvNFpuZEN3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netSTARWORLDHD1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDI6MjkgQU0maGFzaF92YWx1ZT01YlVmN0FtblZZQ09BUlBhVkwwdEN3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netZEECAFEHD1500.stream/chunks.m3u8?nimblesessionid=680246100&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDI6MzYgQU0maGFzaF92YWx1ZT1SdS8rNzlNT05sakd2ZGtxSno2VHNRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.204/iptvlivestream/netSTARPLUSSD1500.stream/chunks.m3u8?nimblesessionid=1043698806&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDI6NDYgQU0maGFzaF92YWx1ZT0rVDBKTGNCeXAyV3hiaWh3SmxQSldBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.205/iptvlivestream/netStarBharatSD1500.stream/chunks.m3u8?nimblesessionid=1043698840&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDI6NTUgQU0maGFzaF92YWx1ZT03ZW5IOGZJd3lqK0ZMVWZ1ZFRlUkRnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netCOMEDYCENTRALHD1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDM6MDEgQU0maGFzaF92YWx1ZT1wWmRXL09PNnpvckJYbWhJdG9ucHpnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netSONY1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDM6MTIgQU0maGFzaF92YWx1ZT1pQkRFc2o2Tjc0ZzhobFVXUkpna0x3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.205/iptvlivestream/netSONYSABTV2500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDM6MTggQU0maGFzaF92YWx1ZT1HUXp2bkJnOUR2bFdPNGh3enZqd0N3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netSONYPAL1500.stream/chunks.m3u8?nimblesessionid=1043698990&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDM6MjcgQU0maGFzaF92YWx1ZT16L3czZm1ycHpMWkZRK0hMZVk2MjdnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/netDDHD1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDM6MzYgQU0maGFzaF92YWx1ZT1SZlEwdnhJYnFxWHhxS1hOQ3BaMGx3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.207/iptvlivestream/netHBOHD1500.stream/chunks.m3u8?nimblesessionid=680246566&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDM6NTYgQU0maGFzaF92YWx1ZT1nUU9HVDJLTHFGSG52WXMzbWwzdHRnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netHBOSIGNATURE1500.stream/chunks.m3u8?nimblesessionid=1043699175&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDQ6MDQgQU0maGFzaF92YWx1ZT01RExkeUtuNTdsQktKTzI1cnJJVnRnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netHBOFAMILY1500.stream/chunks.m3u8?nimblesessionid=1043699210&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDQ6MTAgQU0maGFzaF92YWx1ZT1BTEVSQ2NBc1lFWVRCdDdWOVlRcnFnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netHBOHITS_HIGH.stream/chunks.m3u8?nimblesessionid=680246723&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDQ6MjAgQU0maGFzaF92YWx1ZT15VVF6NktiZjRNVmRDbjBlZG9EYkpnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netHBOHITS_HIGH.stream/chunks.m3u8?nimblesessionid=680246723&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDQ6MjAgQU0maGFzaF92YWx1ZT15VVF6NktiZjRNVmRDbjBlZG9EYkpnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netCinemaWOrld1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDQ6MzMgQU0maGFzaF92YWx1ZT1KeTJxM2huRmpUL1QwanJHMTI0cXR3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netCINEPLEXHD1500.stream/chunks.m3u8?nimblesessionid=680246854&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDQ6NDMgQU0maGFzaF92YWx1ZT1LMDg4TGpHZUhwME5rNVg2R1V6ZjFnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.206/iptvlivestream/netPICTURESHD1500.stream/chunks.m3u8?nimblesessionid=673378500&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDQ6NDkgQU0maGFzaF92YWx1ZT1ZSitDNWlKL05hVE9rSmRyYjVoeUFnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.207/iptvlivedge/netSTARGOLDHD1500.stream/chunks.m3u8?nimblesessionid=680246926&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDQ6NTYgQU0maGFzaF92YWx1ZT1PTmdHdUxNMFJNTC9SbkJPM0ZLODNRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivedge/netZEECINEMAHD1500.stream/chunks.m3u8?nimblesessionid=1043699383&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDU6MDIgQU0maGFzaF92YWx1ZT1CUjNiK2c3b1hycjNjazhnQ3VkYTV3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.206/iptvlivestream/netSTARGOLDSELECTHD1500.stream/chunks.m3u8?nimblesessionid=673378608&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDU6MTEgQU0maGFzaF92YWx1ZT1JdkxBRFJYRTVhb2dDalVtNFRrL2VBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netStarMoviesSD1500.stream/chunks.m3u8?nimblesessionid=1043699421&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDU6MTcgQU0maGFzaF92YWx1ZT1HKzdiaWw1aDJ3ejJFUGIya1gwMmV3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.204/iptvlivestream/netSTARGOLDSD1500.stream/chunks.m3u8?nimblesessionid=1043699446&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDU6MjMgQU0maGFzaF92YWx1ZT1td1BSVFU5aTBiM0RqZEEzT1lXUll3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netB4Ukadak1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDU6MzAgQU0maGFzaF92YWx1ZT1SSlorMi9WRmdWa3J3OTR5djlpYVl3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.207/iptvlivestream/netZEECINEMA1500.stream/chunks.m3u8?nimblesessionid=680247127&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDU6MzggQU0maGFzaF92YWx1ZT16bEdjejNPOVlnaitQUklFMWZma3dBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.205/iptvlivestream/netMOVIESOK1500.stream/chunks.m3u8?nimblesessionid=1043699535&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDU6NDMgQU0maGFzaF92YWx1ZT1sQXRGTmNxMkp0OGhIbDhpOUcxRG53PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.204/iptvlivestream/netMAXTWO1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDU6NTIgQU0maGFzaF92YWx1ZT01ZEpnZTFHYlNuTW1ldmp0cVU0eDZ3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.206/iptvlivestream/netSTARGOLDSELECT1500.stream/chunks.m3u8?nimblesessionid=673378814&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDU6NTggQU0maGFzaF92YWx1ZT1zSkprejVLbWpBaVU0dHZXd0lXRTF3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netZEEACTIONSD1500.stream/chunks.m3u8?nimblesessionid=1043699648&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDY6MDUgQU0maGFzaF92YWx1ZT1xSmFNYUJ4d1B0QWM0UjZydkg3enBRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netB4UMOVIES1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDY6MTQgQU0maGFzaF92YWx1ZT0vdE1wSzNKNklUOUtWakxXTlN3MDhRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.205/iptvlivestream/netSONYPIX1500.stream/chunks.m3u8?nimblesessionid=1043699710&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDY6MjEgQU0maGFzaF92YWx1ZT12T2xOeTZ5RC9ZdlRFMUh1RG1CNGVBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netLOTUSMACAU1500.stream/chunks.m3u8?nimblesessionid=680247346&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDY6MjcgQU0maGFzaF92YWx1ZT05cGNSODhBOUcvb214RUh2YVk2YmtnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netUTVMOVIES.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDY6MzYgQU0maGFzaF92YWx1ZT16bWRjKzVuZTZjbjBhQkk5a3llT3FnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvsports/Sports18HD.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDY6NDQgQU0maGFzaF92YWx1ZT1wMlprNHN1dytCVkZXck9uQ1JROUpBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvsports/netTEN1HD.stream/chunks.m3u8?nimblesessionid=673379028&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDY6NDkgQU0maGFzaF92YWx1ZT16WnlXc2VnajRoY3JyK2p3T0N3b21BPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvsports/netTEN2HDstb.stream/chunks.m3u8?nimblesessionid=1043699807&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDY6NTUgQU0maGFzaF92YWx1ZT1CN2Rka09qUTYyYUJmb3BKMDd2YWtnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvsports/TEN3HDstb.stream/chunks.m3u8?nimblesessionid=680247502&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDc6MDEgQU0maGFzaF92YWx1ZT1ld1lLS1pMNXZCZDFuYVpiVW1teWV3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvsports/netSIXHD1500.stream/chunks.m3u8?nimblesessionid=680247546&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDc6MDcgQU0maGFzaF92YWx1ZT13MHFIakVOZS9DQVpvaGVySGtkUDRBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvsports/netESPNHD1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDc6MjIgQU0maGFzaF92YWx1ZT1IaVZMdzZwanBWTkxmclFLcEIvcDN3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvsports/netSTARSPORTS1HD1500.stream/chunks.m3u8?nimblesessionid=1043699928&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDc6MjkgQU0maGFzaF92YWx1ZT13M2F0MHNJUEJWZExDWXIwelFUSnpRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/netSTARSPORTS2HD1500.stream/chunks.m3u8?nimblesessionid=673379247&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDc6MzUgQU0maGFzaF92YWx1ZT1SdlAyNm16VHZmeDMxdmpUYkVHblFnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.204/iptvsports/netSTARSPORTS3HD1500.stream/chunks.m3u8?nimblesessionid=1043699976&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDc6NDIgQU0maGFzaF92YWx1ZT1RV2xLbjRVVTFmYkpDQ0piSmpnS2x3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.204/iptvsports/netSELECTHD11500.stream/chunks.m3u8?nimblesessionid=1043699995&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDc6NDcgQU0maGFzaF92YWx1ZT11QmFMdHpqZ1A0aUlLcUhNWlo4QkVnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvsports/netSTARSELECTHD21500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDc6NTMgQU0maGFzaF92YWx1ZT1XU0xVeWJsOVp6cFdMeWxpRVRYZUhRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netSELECT1SD1500.stream/chunks.m3u8?nimblesessionid=1043700048&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDg6MDEgQU0maGFzaF92YWx1ZT1iN1RKWVRBNnVwREhKRHQ1cS9lekR3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.207/iptvlivestream/netSELECTSD21500.stream/chunks.m3u8?nimblesessionid=680247928&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDg6MDggQU0maGFzaF92YWx1ZT1FaTdMOEp3N1UwL3dIWmJEMUg2VmFBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netSETANTA1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDg6MTYgQU0maGFzaF92YWx1ZT1mSkU4VFltMjdKb2piVUJQd2NGWlBBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netTENSPORTSONE1500.stream/chunks.m3u8?nimblesessionid=1043700175&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDg6MjcgQU0maGFzaF92YWx1ZT1YZURHbkx1dVlkRXRrM1dYQW81bEVBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netTENSPORTSTWO1500.stream/chunks.m3u8?nimblesessionid=1043700198&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDg6MzQgQU0maGFzaF92YWx1ZT12dHZ2UG5BVmZSS1lWbnB2UGYyNWpBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netTENSPORTSTHREE1500.stream/chunks.m3u8?nimblesessionid=1043700229&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDg6NDEgQU0maGFzaF92YWx1ZT0wWERldGVIL1pBRzltOTQvT1ZCSXdRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netSONYSIX1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDg6NDcgQU0maGFzaF92YWx1ZT0vRTFLbWlyVHRpMXliR3kxYnorODZRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.206/iptvsports/netSTARSPORTS1SD1500.stream/chunks.m3u8?nimblesessionid=673379622&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDg6NTQgQU0maGFzaF92YWx1ZT11YXVlTXpvelVhTWV5SGdUVDByaVBRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.207/iptvlivestream/netSTARSPORTS2SD1500.stream/chunks.m3u8?nimblesessionid=680248223&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDk6MDEgQU0maGFzaF92YWx1ZT0walQxR0U3aTQ4UDJRSWg5bnNpc1BBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netstarsportsS3.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDk6MDggQU0maGFzaF92YWx1ZT1CL29BOXpmZURkZ29LSVlUOEZYVnZRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.204/iptvlivestream/netPTVSPORTS1500.stream/chunks.m3u8?nimblesessionid=1043700353&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDk6MTggQU0maGFzaF92YWx1ZT1qWDlMWHBCNGZvOUJzenlDZlFlTDlnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.207/iptvlivestream/netACTIONSPORTSHD1500.stream/chunks.m3u8?nimblesessionid=680248341&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDk6MjQgQU0maGFzaF92YWx1ZT1RbFpnK0R0OEtQODNEZkxlbVE4TUVBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netASPORTSHD1500.stream/chunks.m3u8?nimblesessionid=680248386&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDk6MzEgQU0maGFzaF92YWx1ZT1XMHV1b05NZjNQZFR0bjlxY0h1dGFBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netVH1HD1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDk6NDUgQU0maGFzaF92YWx1ZT1iVHg5UXdCcFA1SzY3eFV6Wkd4TkhnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netMTVHD1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NDk6NTYgQU0maGFzaF92YWx1ZT1laVNJWWFDMVJhUDFEVklBK0xkM0dBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netMTVBEATSHD1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTA6MDMgQU0maGFzaF92YWx1ZT0waTF6b1pKdElBT0Y0SEhmeC9IRmhBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netVH11500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTA6MTEgQU0maGFzaF92YWx1ZT1mQlRVZENsWDl0cmJaSGFuWFp3WFpBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/netB4UMUSIC1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTA6MTggQU0maGFzaF92YWx1ZT1wam5lRDFGcHpjcGIvNlgxRTVzSkFRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netNICKHD1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTA6MjggQU0maGFzaF92YWx1ZT1MNVM4enRlWVNMTnNvWXllWkZSK1Z3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netCN1500.stream/chunks.m3u8?nimblesessionid=1043700647&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTA6MzQgQU0maGFzaF92YWx1ZT1sK1VtaXIwaGlrTU1RTE50SE5BUzVRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netNICKJR1500.stream/chunks.m3u8?nimblesessionid=680248789&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTA6NDIgQU0maGFzaF92YWx1ZT1oNEZkcGxKYVVPQ0sydm44eHVXS1RRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netNICK1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTA6NTMgQU0maGFzaF92YWx1ZT1DY1ZtcklhaVZMbm1XUkplVEd2eUhRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/netDISCOVERYKIDS1500.stream/chunks.m3u8?nimblesessionid=673380186&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTE6MDEgQU0maGFzaF92YWx1ZT1MbmxPRzBBeEFzeHJNL1RXaytvNDNnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netNATGEOPEOPLE1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTE6MTEgQU0maGFzaF92YWx1ZT1MSlR5UUd1T1c4K1U5a2dBUWVFNldRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netNATGEOWILDHD1500.stream/chunks.m3u8?nimblesessionid=1043700797&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTE6MTggQU0maGFzaF92YWx1ZT1yVVdXMVVtVHdueU03a3VQdnlxUGRRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netAnimalPlanet1500.stream/chunks.m3u8?nimblesessionid=1043700816&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTE6MjUgQU0maGFzaF92YWx1ZT1uZ1FVdkdXMGlYTllsWFVSTmVMeEpnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netNGCHD1500.stream/chunks.m3u8?nimblesessionid=1043700841&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTE6MzQgQU0maGFzaF92YWx1ZT1IMUdGRnNqZkNtUkRnV0ppSU9Zd1NRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netDISCOVERYHD1500.stream/chunks.m3u8?nimblesessionid=680249106&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTE6NDIgQU0maGFzaF92YWx1ZT1ma21xdWw0ZFovZzJ5MGczMWhYMDVBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/netTLC1500.stream/chunks.m3u8?nimblesessionid=1043700896&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTE6NTEgQU0maGFzaF92YWx1ZT1sQnUrZWd6ZUtFYXpxUEhvenIyeEd3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netSONYBBCHD1500.stream/chunks.m3u8?nimblesessionid=1043700911&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTE6NTggQU0maGFzaF92YWx1ZT1aWG5uNlJ3S0tyZEJNYlNaN0VHL2hnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.206/iptvlivestream/netHISTORYTVHD1500.stream/chunks.m3u8?nimblesessionid=673380563&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTI6MDYgQU0maGFzaF92YWx1ZT1KYXFNZVlleEJERnJabG1CMDExM3pBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netTurbo1500.stream/chunks.m3u8?nimblesessionid=1043700968&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTI6MTQgQU0maGFzaF92YWx1ZT1pdlFnalpkeDdnWXUzeG4xRXdJVUlnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netJEET1500.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTI6MjUgQU0maGFzaF92YWx1ZT1IZlJTd3NCTlpQSm04WjkzakZXeDNRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.207/iptvlivestream/AnimalPlanetSD1500.stream/chunks.m3u8?nimblesessionid=680249354&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTI6MzIgQU0maGFzaF92YWx1ZT1qMGYzZUIvaEhKWkxBNGJmNTJKbTdRPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.204/iptvlivestream/netDisScience.stream/chunks.m3u8?nimblesessionid=1043701064&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTI6MzggQU0maGFzaF92YWx1ZT05N0ZpYi85Y3ZwNkJJN1dsUmdkZzdBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.207/iptvlivestream/netDibyaDarsan1500.stream/chunks.m3u8?nimblesessionid=680249470&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTI6NTQgQU0maGFzaF92YWx1ZT1TZTFHbEFlNFRqZVBOcDNTV0x5UFpBPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.204/iptvlivestream/netAASTHA1500.stream/chunks.m3u8?nimblesessionid=1043701139&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTM6MDMgQU0maGFzaF92YWx1ZT1CMkZxYTV0UTlZRmJkMUlLNGdUNmtnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.205/iptvlivestream/netSANSKAR1500.stream/chunks.m3u8?nimblesessionid=1043701160&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTM6MTAgQU0maGFzaF92YWx1ZT1ub0lqYnF1bUVDaVlLK3gyTHgvS1d3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+
+"http://202.166.192.204/iptvlivestream/netPEACEOFMIND1500.stream/chunks.m3u8?nimblesessionid=1043701181&wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTM6MTUgQU0maGFzaF92YWx1ZT1JZ1QwWXh3TW9qZlNqRFRLbkpSY2d3PT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+
+"http://202.166.192.205/iptvlivestream/ITVNepal.stream/playlist.m3u8?wmsAuthSign=c2VydmVyX3RpbWU9My8yNi8yMDI2IDI6NTM6MzUgQU0maGFzaF92YWx1ZT1pMGlEQmJEWGI2dCtPekpZZS82NHBnPT0mdmFsaWRtaW51dGVzPTE0NDAmaWQ9MjAw",
+        // ... (Additional links from your list can be added here) 
+    ];
+
+   let currentIndex = 0;
+    const video = document.getElementById('video');
+    const channelInfo = document.getElementById('channel-info');
+    const channelListDiv = document.getElementById('channel-list');
+    let hls = null;
+
+    // Helper: Clean up URL to show a readable name
+    function getChannelName(url) {
+        try {
+            const part = url.split('/')[4];
+            return part.replace('.stream', '').replace('net', '').replace('1500', '').toUpperCase();
+        } catch(e) { return "CHANNEL"; }
+    }
+
+    // Populate the Sidebar
+    function buildSidebar() {
+        channels.forEach((url, index) => {
+            const name = getChannelName(url);
+            const item = document.createElement('div');
+            item.className = 'channel-item' + (index === 0 ? ' active' : '');
+            item.id = `ch-${index}`;
+            item.innerText = `${index + 1}. ${name}`;
+            item.onclick = () => {
+                currentIndex = index;
+                loadChannel(index);
+            };
+            channelListDiv.appendChild(item);
+        });
+    }
+
+    function loadChannel(index) {
+        const url = channels[index];
+        const name = getChannelName(url);
+        channelInfo.innerText = name;
+
+        // Update active class in sidebar
+        document.querySelectorAll('.channel-item').forEach(item => item.classList.remove('active'));
+        document.getElementById(`ch-${index}`).classList.add('active');
+
+        // Playback logic
+        if (Hls.isSupported()) {
+            if (hls) hls.destroy();
+            hls = new Hls();
+            hls.loadSource(url);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = url;
+            video.addEventListener('loadedmetadata', () => video.play());
+        }
+    }
+
+    function nextChannel() {
+        currentIndex = (currentIndex + 1) % channels.length;
+        loadChannel(currentIndex);
+    }
+
+    function prevChannel() {
+        currentIndex = (currentIndex - 1 + channels.length) % channels.length;
+        loadChannel(currentIndex);
+    }
+
+    function toggleFullscreen() {
+        const wrapper = document.getElementById('wrapper');
+        if (!document.fullscreenElement) {
+            wrapper.requestFullscreen().catch(err => console.log(err));
+        } else {
+            document.exitFullscreen();
+        }
+    }
+
+    // Initial setup
+    buildSidebar();
+    loadChannel(0);
+</script>
+
+</body>
+</html>
